@@ -2417,6 +2417,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			         iface);
 			return -1;
 		}
+		vhost->created_vhost_iface = 1;
 		strcpy(serv_unix.sun_path, iface);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';

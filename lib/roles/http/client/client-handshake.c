@@ -284,6 +284,13 @@ create_new_conn:
 		}
 	} else
 #endif /* use ipv6 */
+#ifdef LWS_WITH_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)) {
+		sa46.sau.sun_family = AF_UNIX;
+		const char* uds_iface = wsi->vhost->iface;
+		strcpy(sa46.sau.sun_path, uds_iface);
+	} else
+#endif
 
 	/* use ipv4 */
 	{
@@ -354,6 +361,11 @@ create_new_conn:
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
 #endif
+#ifdef LWS_WITH_UNIX_SOCK
+		if (LWS_UNIX_SOCK_ENABLED(context))
+			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+		else
+#endif
 			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
@@ -362,6 +374,9 @@ create_new_conn:
 			goto oom4;
 		}
 
+#ifdef LWS_WITH_UNIX_SOCK
+		if (!LWS_UNIX_SOCK_ENABLED(context))
+#endif
 		if (lws_plat_set_socket_options(wsi->vhost, wsi->desc.sockfd)) {
 			lwsl_err("Failed to set wsi socket options\n");
 			compatible_close(wsi->desc.sockfd);
@@ -411,6 +426,11 @@ create_new_conn:
 	if (wsi->ipv6) {
 		sa46.sa6.sin6_port = htons(port);
 		n = sizeof(struct sockaddr_in6);
+	} else
+#endif
+#ifdef LWS_WITH_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)){
+		n = sizeof(struct sockaddr_un);
 	} else
 #endif
 	{

@@ -1637,7 +1637,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(context)) {
+	if (vh->created_vhost_iface && LWS_UNIX_SOCK_ENABLED(context)) {
 		n = unlink(vh->iface);
 		if (n)
 			lwsl_info("Closing unix socket %s: errno %d\n",
