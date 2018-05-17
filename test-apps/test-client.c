@@ -539,6 +539,7 @@ static struct option options[] = {
 	{ "nomirror",	no_argument,		NULL, 'n' },
 	{ "justmirror",	no_argument,		NULL, 'j' },
 	{ "longlived",	no_argument,		NULL, 'l' },
+	{ "unix_socket", required_argument,	NULL, 'U' },
 	{ "post",	no_argument,		NULL, 'o' },
 	{ "once",	no_argument,		NULL, 'O' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
@@ -578,6 +579,7 @@ int main(int argc, char **argv)
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
 	char ca_path[1024] = "";
+	char un_path[300] = "";
 	unsigned long last = lws_now_secs();
 
 	memset(&info, 0, sizeof info);
@@ -589,7 +591,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moeO", options,
+		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lU:C:K:A:P:moeO", options,
 				NULL);
 		if (n < 0)
 			continue;
@@ -620,6 +622,9 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			longlived = 1;
+			break;
+		case 'U':
+			lws_strncpy(un_path, optarg, sizeof(un_path) - 1);
 			break;
 		case 'v':
 			ietf_version = atoi(optarg);
@@ -672,6 +677,7 @@ int main(int argc, char **argv)
 		goto usage;
 
 	/* add back the leading / on path */
+	lwsl_notice("PATH: %s\n", p);
 	path[0] = '/';
 	lws_strncpy(path + 1, p, sizeof(path) - 1);
 	i.path = path;
@@ -691,6 +697,10 @@ int main(int argc, char **argv)
 	 */
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
+	if (strlen(un_path)) {
+		info.iface = un_path;
+		info.options |= LWS_SERVER_OPTION_UNIX_SOCK;
+	}
 	info.protocols = protocols;
 	info.gid = -1;
 	info.uid = -1;
@@ -845,6 +855,6 @@ usage:
 	fprintf(stderr, "Usage: libwebsockets-test-client "
 				"<server address> [--port=<p>] "
 				"[--ssl] [-k] [-v <ver>] "
-				"[-d <log bitfield>] [-l]\n");
+				"[-d <log bitfield>] [-l] [-U <sock-path>]\n");
 	return 1;
 }

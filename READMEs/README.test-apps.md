@@ -187,7 +187,7 @@ Start the test server with -U and the path to create the unix domain socket
 
 On exit, lws will delete the socket inode.
 
-To test the client side, eg
+To test the client side with `netcat`
 
 ```
  $ nc -C -U /tmp/uds -i 30
@@ -198,6 +198,16 @@ and type
 `GET / HTTP/1.1`
 
 followed by two ENTER.  The contents of test.html should be returned.
+
+To test the client side with test client
+
+```
+ $ libwebsockets-test-client ws://server/uri -U /tmp/uds
+```
+
+The `ws://` selects websocket as protocol. `server/uri` selects the URI.
+The `server` is just an unused value but internally the parsing expects to
+have scheme, server and URI in the argument.
 
 @section wscl Testing websocket client support
 
