@@ -90,16 +90,34 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		lws_plat_set_socket_options(wsi->vhost, accept_fd);
 
+#if defined(LWS_WITH_UNIX_SOCK)
+		if (!LWS_UNIX_SOCK_ENABLED(context)) {
+#endif
 #if defined(LWS_WITH_IPV6)
-		lwsl_debug("accepted new conn port %u on fd=%d\n",
-			((cli_addr.ss_family == AF_INET6) ?
-			ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
-			ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
-			accept_fd);
+			lwsl_debug("accepted new conn port %u on fd=%d\n",
+					   ((cli_addr.ss_family == AF_INET6) ?
+						ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
+						ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
+					   accept_fd);
 #else
-		lwsl_debug("accepted new conn port %u on fd=%d\n",
-			   ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
-			   accept_fd);
+			lwsl_debug("accepted new conn port %u on fd=%d\n",
+					   ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
+					   accept_fd);
+#endif
+#if defined(LWS_WITH_UNIX_SOCK)
+		} else {
+			struct sockaddr_storage ss;
+			socklen_t sslen = sizeof(struct sockaddr_storage);
+			if (getsockname(accept_fd, (struct sockaddr *) &ss, &sslen) == 0) {
+				struct sockaddr_un *un = (struct sockaddr_un *) &ss;
+				printf("socket name is: %s\n", un->sun_path);
+				lwsl_debug("accepted new conn path %s on fd=%d\n",
+						   un->sun_path, accept_fd);
+			} else {
+				lwsl_debug("could not get domain socket information for fd=%d\n",
+						   accept_fd);
+			}
+		}
 #endif
 
 		/*
