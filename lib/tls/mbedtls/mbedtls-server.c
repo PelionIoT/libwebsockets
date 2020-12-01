@@ -160,7 +160,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	}
 	err = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, flen, p);
 	if (!err) {
-		free(p);
+		if (f)
+			free(p);
 		lwsl_err("Problem loading cert\n");
 		return 1;
 	}
@@ -275,7 +276,11 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	return 0;
 }
 
+#if defined(LWS_AMAZON_RTOS)
+enum lws_ssl_capable_status
+#else
 int
+#endif
 lws_tls_server_abort_connection(struct lws *wsi)
 {
 	__lws_tls_shutdown(wsi);
@@ -294,18 +299,20 @@ lws_tls_server_accept(struct lws *wsi)
 	if (n == 1) {
 
 		if (strstr(wsi->vhost->name, ".invalid")) {
-			lwsl_notice("%s: vhost has .invalid, rejecting accept\n", __func__);
+			lwsl_notice("%s: vhost has .invalid, "
+				    "rejecting accept\n", __func__);
 
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
-					   sizeof(ir.ns.name));
+		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
+					   &ir, sizeof(ir.ns.name));
 		if (!n)
 			lwsl_notice("%s: client cert CN '%s'\n",
 				    __func__, ir.ns.name);
 		else
-			lwsl_info("%s: couldn't get client cert CN\n", __func__);
+			lwsl_info("%s: couldn't get client cert CN\n",
+				  __func__);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
@@ -322,7 +329,8 @@ lws_tls_server_accept(struct lws *wsi)
 
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-			lwsl_info("%s: WANT_READ change_pollfd failed\n", __func__);
+			lwsl_info("%s: WANT_READ change_pollfd failed\n",
+				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 
@@ -333,7 +341,8 @@ lws_tls_server_accept(struct lws *wsi)
 		lwsl_debug("%s: WANT_WRITE\n", __func__);
 
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
-			lwsl_info("%s: WANT_WRITE change_pollfd failed\n", __func__);
+			lwsl_info("%s: WANT_WRITE change_pollfd failed\n",
+				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -554,7 +563,8 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 		//lwsl_hexdump_level(LLL_DEBUG, pkey_asn1, n);
 
 		/* and to use our generated private key */
-		n = SSL_CTX_use_PrivateKey_ASN1(0, vhost->tls.ssl_ctx, pkey_asn1, m);
+		n = SSL_CTX_use_PrivateKey_ASN1(0, vhost->tls.ssl_ctx,
+						pkey_asn1, m);
 		lws_free(pkey_asn1);
 		if (n != 1) {
 			lwsl_err("%s: SSL_CTX_use_PrivateKey_ASN1 failed\n",
@@ -631,7 +641,7 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 
 	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
 
-	for (n = 0; n < (int)ARRAY_SIZE(x5); n++) {
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(x5); n++) {
 		if (p != subject)
 			*p++ = ',';
 		if (elements[n])

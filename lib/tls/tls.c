@@ -30,18 +30,18 @@
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 {
-	struct lws *wsi, *wsi_next;
 	int ret = 0;
 
-	wsi = pt->tls.pending_read_list;
-	while (wsi && wsi->position_in_fds_table != LWS_NO_FDS_POS) {
-		wsi_next = wsi->tls.pending_read_list_next;
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, p, p1,
+				   pt->tls.pending_tls_head.next) {
+		struct lws *wsi = lws_container_of(p, struct lws,
+						   tls.pending_tls_list);
+
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
 		ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
 
-		wsi = wsi_next;
-	}
+	} lws_end_foreach_dll_safe(p, p1);
 
 	return !!ret;
 }
@@ -49,29 +49,10 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 void
 __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-
-	if (!wsi->tls.pending_read_list_prev &&
-	    !wsi->tls.pending_read_list_next &&
-	    pt->tls.pending_read_list != wsi)
-		/* we are not on the list */
+	if (lws_dll_is_null(&wsi->tls.pending_tls_list))
 		return;
 
-	/* point previous guy's next to our next */
-	if (!wsi->tls.pending_read_list_prev)
-		pt->tls.pending_read_list = wsi->tls.pending_read_list_next;
-	else
-		wsi->tls.pending_read_list_prev->tls.pending_read_list_next =
-			wsi->tls.pending_read_list_next;
-
-	/* point next guy's previous to our previous */
-	if (wsi->tls.pending_read_list_next)
-		wsi->tls.pending_read_list_next->tls.pending_read_list_prev =
-			wsi->tls.pending_read_list_prev;
-
-	wsi->tls.pending_read_list_prev = NULL;
-	wsi->tls.pending_read_list_next = NULL;
+	lws_dll_lws_remove(&wsi->tls.pending_tls_list);
 }
 
 void
@@ -84,7 +65,7 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	lws_pt_unlock(pt);
 }
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_WITH_ESP32) && !defined(LWS_AMAZON_RTOS)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	       lws_filepos_t *amount)
 {
@@ -173,12 +154,12 @@ bail:
 
 int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
-			const char *inbuf, lws_filepos_t inlen,
-		      uint8_t **buf, lws_filepos_t *amount)
+			      const char *inbuf, lws_filepos_t inlen,
+			      uint8_t **buf, lws_filepos_t *amount)
 {
 	const uint8_t *pem, *p, *end;
-	uint8_t *q;
 	lws_filepos_t len;
+	uint8_t *q;
 	int n;
 
 	if (filename) {
@@ -238,23 +219,25 @@ bail:
 int
 lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
-	union lws_tls_cert_info_results ir;
 	time_t now = (time_t)lws_now_secs(), life = 0;
 	struct lws_acme_cert_aging_args caa;
+	union lws_tls_cert_info_results ir;
 	int n;
 
 	if (v->tls.ssl_ctx && !v->tls.skipped_certs) {
 
-		if (now < 1464083026) /* May 2016 */
+		if (now < 1542933698) /* Nov 23 2018 00:42 UTC */
 			/* our clock is wrong and we can't judge the certs */
 			return -1;
 
-		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
+		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					    &ir, 0);
 		if (n)
 			return 1;
 
 		life = (ir.time - now) / (24 * 3600);
-		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
+		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name,
+			    (int)life);
 	} else
 		lwsl_notice("   vhost %s: no cert\n", v->name);
 
@@ -326,6 +309,7 @@ lws_tls_extant(const char *name)
  * 4) LWS_TLS_EXTANT_YES: The certs are present with the correct name and we
  *    have the rights to read them.
  */
+#if !defined(LWS_AMAZON_RTOS)
 enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name)
 {
@@ -382,6 +366,7 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 #endif
 	return LWS_TLS_EXTANT_YES;
 }
+#endif
 
 /*
  * LWS_TLS_EXTANT_NO         : skip adding the cert
@@ -446,7 +431,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 	wsi.context = context;
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-		wsi.vhost = v;
+		wsi.vhost = v; /* not a real bound wsi */
 		if (v->tls.alloc_cert_path && v->tls.key_path &&
 		    !strcmp(v->tls.alloc_cert_path, certpath) &&
 		    !strcmp(v->tls.key_path, keypath)) {

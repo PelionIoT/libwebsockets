@@ -8,11 +8,14 @@ minimal-http-server-eventlib|Same as minimal-http-server but works with a suppor
 minimal-http-server-form-get|Process a GET form
 minimal-http-server-form-post-file|Process a multipart POST form with file transfer
 minimal-http-server-form-post|Process a POST form (no file transfer)
+minimal-http-server-fulltext-search|Demonstrates using lws Fulltext Search
 minimal-http-server-mimetypes|Shows how to add support for additional mimetypes at runtime
 minimal-http-server-multivhost|Same as minimal-http-server but three different vhosts
+minimal-http-server-proxy|Reverse Proxy
 minimal-http-server-smp|Multiple service threads
 minimal-http-server-sse-ring|Server Side Events with ringbuffer and threaded event sources
 minimal-http-server-sse|Simple Server Side Events
+minimal-http-server-tls-80|Serves a directory over http/1 or http/2 with TLS (SSL), custom 404 handler, redirect to https on port 80
 minimal-http-server-tls|Serves a directory over http/1 or http/2 with TLS (SSL), custom 404 handler
 minimal-http-server|Serves a directory over http/1, custom 404 handler
 

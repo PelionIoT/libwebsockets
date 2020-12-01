@@ -65,6 +65,8 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 		}
 	}
 
+	lwsl_debug("%s: wait\n", __func__);
+
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
@@ -184,8 +186,8 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 	pt->event.hrtimer = event_new(loop, -1, EV_PERSIST,
 				      lws_event_hrtimer_cb, pt);
 
-	pt->event.idle_timer = event_new(loop, -1, EV_PERSIST,
-				      lws_event_idle_timer_cb, pt);
+	pt->event.idle_timer = event_new(loop, -1, 0,
+					 lws_event_idle_timer_cb, pt);
 
 	/* Register the signal watcher unless it's a foreign loop */
 
@@ -213,7 +215,7 @@ elops_init_context_event(struct lws_context *context,
 	return 0;
 }
 
-static void
+static int
 elops_accept_event(struct lws *wsi)
 {
 	struct lws_context *context = lws_get_context(wsi);
@@ -235,6 +237,8 @@ elops_accept_event(struct lws *wsi)
 			(EV_READ | EV_PERSIST), lws_event_cb, &wsi->w_read);
 	wsi->w_write.event.watcher = event_new(pt->event.io_loop, fd,
 			(EV_WRITE | EV_PERSIST), lws_event_cb, &wsi->w_write);
+
+	return 0;
 }
 
 static void

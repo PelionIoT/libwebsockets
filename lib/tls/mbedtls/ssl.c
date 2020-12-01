@@ -33,7 +33,8 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 	lwsl_info(" Compiled with MbedTLS support\n");
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
-		lwsl_info(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		lwsl_info(" SSL disabled: no "
+			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
 
 	return 0;
 }
@@ -69,16 +70,17 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	errno = 0;
 	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
-	if (!n && errno == ENOTCONN) {
+	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%p: SSL_read ENOTCONN\n", wsi);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 #endif
 #if defined(LWS_WITH_STATS)
-	if (!wsi->seen_rx) {
+	if (!wsi->seen_rx && wsi->accept_start_us) {
                 lws_stats_atomic_bump(wsi->context, pt,
                 		      LWSSTATS_MS_SSL_RX_DELAY,
-				time_in_microseconds() - wsi->accept_start_us);
+				lws_time_in_microseconds() -
+				wsi->accept_start_us);
                 lws_stats_atomic_bump(wsi->context, pt,
                 		      LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
 		wsi->seen_rx = 1;
@@ -97,6 +99,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (n < 0) {
 		m = SSL_get_error(wsi->tls.ssl, n);
 		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
+		if (errno == LWS_ENOTCONN) {
+			/* If the socket isn't connected anymore, bail out. */
+			wsi->socket_is_permanently_unusable = 1;
+			return LWS_SSL_CAPABLE_ERROR;
+		}
 		if (m == SSL_ERROR_ZERO_RETURN ||
 		    m == SSL_ERROR_SYSCALL)
 			return LWS_SSL_CAPABLE_ERROR;
@@ -133,23 +140,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		goto bail;
 
-	if (!SSL_pending(wsi->tls.ssl))
-		goto bail;
+	if (SSL_pending(wsi->tls.ssl) &&
+	    lws_dll_is_null(&wsi->tls.pending_tls_list)) {
 
-	if (wsi->tls.pending_read_list_next)
-		return n;
-	if (wsi->tls.pending_read_list_prev)
-		return n;
-	if (pt->tls.pending_read_list == wsi)
-		return n;
-
-	/* add us to the linked list of guys with pending ssl */
-	if (pt->tls.pending_read_list)
-		pt->tls.pending_read_list->tls.pending_read_list_prev = wsi;
-
-	wsi->tls.pending_read_list_next = pt->tls.pending_read_list;
-	wsi->tls.pending_read_list_prev = NULL;
-	pt->tls.pending_read_list = wsi;
+		lws_dll_lws_add_front(&wsi->tls.pending_tls_list,
+				      &pt->tls.pending_tls_head);
+	}
 
 	return n;
 bail:
@@ -189,7 +185,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 
 		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 			lws_set_blocking_send(wsi);
-			lwsl_notice("%s: want write\n", __func__);
+			lwsl_debug("%s: want write\n", __func__);
 
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}

@@ -121,6 +121,7 @@ enum lwsi_state {
 	LRS_ISSUING_FILE			= 20,
 	LRS_HEADERS				= 21,
 	LRS_BODY				= 22,
+	LRS_DISCARD_BODY			= 31,
 	LRS_ESTABLISHED				= LWSIFS_POCB | 23,
 	/* we are established, but we have embarked on serving a single
 	 * transaction.  Other transaction input may be pending, but we will
@@ -241,6 +242,16 @@ struct lws_role_ops {
 	 * (just client applies if no concept of client or server)
 	 */
 	uint16_t close_cb[2];
+	/*
+	 * the callback reasons for protocol bind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_bind_cb[2];
+	/*
+	 * the callback reasons for protocol unbind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_unbind_cb[2];
 
 	unsigned int file_handle:1; /* role operates on files not sockets */
 };
@@ -279,6 +290,12 @@ extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
  #include "roles/cgi/private.h"
 #else
  #define lwsi_role_cgi(wsi) (0)
+#endif
+
+#if defined(LWS_ROLE_DBUS)
+ #include "roles/dbus/private.h"
+#else
+ #define lwsi_role_dbus(wsi) (0)
 #endif
 
 enum {
