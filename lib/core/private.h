@@ -22,22 +22,18 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+#if defined(LWS_HAVE_SYS_STAT_H) && !defined(LWS_PLAT_OPTEE)
+ #include <sys/stat.h>
+#endif
+
+/*
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+*/
+
 #if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK)
  #define  _GNU_SOURCE
-#endif
-
-#if defined(__COVERITY__) && !defined(LWS_COVERITY_WORKAROUND)
- #define LWS_COVERITY_WORKAROUND
- typedef float _Float32;
- typedef float _Float64;
- typedef float _Float128;
- typedef float _Float32x;
- typedef float _Float64x;
- typedef float _Float128x;
-#endif
-
-#ifdef LWS_HAVE_SYS_TYPES_H
- #include <sys/types.h>
 #endif
 
 #include <stdio.h>
@@ -47,272 +43,19 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
-#include <inttypes.h>
 
-#if defined(LWS_WITH_ESP32)
- #define MSG_NOSIGNAL 0
- #define SOMAXCONN 3
+#ifdef LWS_HAVE_INTTYPES_H
+#include <inttypes.h>
 #endif
 
-#define STORE_IN_ROM
 #include <assert.h>
+
+#ifdef LWS_HAVE_SYS_TYPES_H
+ #include <sys/types.h>
+#endif
+
 #if LWS_MAX_SMP > 1
  #include <pthread.h>
-#endif
-
-#ifdef LWS_HAVE_SYS_STAT_H
- #include <sys/stat.h>
-#endif
-
-#if defined(WIN32) || defined(_WIN32)
-
- #ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
- #endif
-
- #if (WINVER < 0x0501)
-  #undef WINVER
-  #undef _WIN32_WINNT
-  #define WINVER 0x0501
-  #define _WIN32_WINNT WINVER
- #endif
-
- #define LWS_NO_DAEMONIZE
- #define LWS_ERRNO WSAGetLastError()
- #define LWS_EAGAIN WSAEWOULDBLOCK
- #define LWS_EALREADY WSAEALREADY
- #define LWS_EINPROGRESS WSAEINPROGRESS
- #define LWS_EINTR WSAEINTR
- #define LWS_EISCONN WSAEISCONN
- #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
- #define MSG_NOSIGNAL 0
- #define SHUT_RDWR SD_BOTH
- #define SOL_TCP IPPROTO_TCP
- #define SHUT_WR SD_SEND
-
- #define compatible_close(fd) closesocket(fd)
- #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
- #define LWS_SOCK_INVALID (INVALID_SOCKET)
-
- #include <winsock2.h>
- #include <ws2tcpip.h>
- #include <windows.h>
- #include <tchar.h>
- #ifdef LWS_HAVE_IN6ADDR_H
-  #include <in6addr.h>
- #endif
- #include <mstcpip.h>
- #include <io.h>
-
- #if !defined(LWS_HAVE_ATOLL)
-  #if defined(LWS_HAVE__ATOI64)
-   #define atoll _atoi64
-  #else
-   #warning No atoll or _atoi64 available, using atoi
-   #define atoll atoi
-  #endif
- #endif
-
- #ifndef __func__
-  #define __func__ __FUNCTION__
- #endif
-
- #ifdef LWS_HAVE__VSNPRINTF
-  #define vsnprintf _vsnprintf
- #endif
-
- /* we don't have an implementation for this on windows... */
- int kill(int pid, int sig);
- int fork(void);
- #ifndef SIGINT
-  #define SIGINT 2
- #endif
-
-#else /* not windows --> */
-
- #include <fcntl.h>
- #include <strings.h>
- #include <unistd.h>
- #include <sys/types.h>
-
- #ifndef __cplusplus
-  #include <errno.h>
- #endif
- #include <netdb.h>
- #include <signal.h>
- #include <sys/socket.h>
-
- #if defined(LWS_BUILTIN_GETIFADDRS)
-  #include "./misc/getifaddrs.h"
- #else
-  #if !defined(LWS_WITH_ESP32)
-   #if defined(__HAIKU__)
-    #define _BSD_SOURCE
-   #endif
-   #include <ifaddrs.h>
-  #endif
- #endif
- #if defined (__ANDROID__)
-  #include <syslog.h>
-  #include <sys/resource.h>
- #elif defined (__sun) || defined(__HAIKU__) || defined(__QNX__)
-  #include <syslog.h>
- #else
-  #if !defined(LWS_WITH_ESP32)
-   #include <sys/syslog.h>
-  #endif
- #endif
- #include <netdb.h>
- #if !defined(LWS_WITH_ESP32)
-  #include <sys/mman.h>
-  #include <sys/un.h>
-  #include <netinet/in.h>
-  #include <netinet/tcp.h>
-  #include <arpa/inet.h>
-  #include <poll.h>
- #endif
- #ifndef LWS_NO_FORK
-  #ifdef LWS_HAVE_SYS_PRCTL_H
-   #include <sys/prctl.h>
-  #endif
- #endif
-
- #include <sys/time.h>
-
- #define LWS_ERRNO errno
- #define LWS_EAGAIN EAGAIN
- #define LWS_EALREADY EALREADY
- #define LWS_EINPROGRESS EINPROGRESS
- #define LWS_EINTR EINTR
- #define LWS_EISCONN EISCONN
- #define LWS_EWOULDBLOCK EWOULDBLOCK
-
- #define lws_set_blocking_send(wsi)
-
- #define LWS_SOCK_INVALID (-1)
-#endif /* not windows */
-
-#ifndef LWS_HAVE_BZERO
- #ifndef bzero
-  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
- #endif
-#endif
-
-#ifndef LWS_HAVE_STRERROR
- #define strerror(x) ""
-#endif
-
-
-#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
-
-#include "libwebsockets.h"
-
-#include "tls/private.h"
-
-#if defined(WIN32) || defined(_WIN32)
- #include <gettimeofday.h>
-
- #ifndef BIG_ENDIAN
-  #define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
- #endif
- #ifndef LITTLE_ENDIAN
-  #define LITTLE_ENDIAN 1234
- #endif
- #ifndef BYTE_ORDER
-  #define BYTE_ORDER LITTLE_ENDIAN
- #endif
-
- #undef __P
- #ifndef __P
-  #if __STDC__
-   #define __P(protos) protos
-  #else
-   #define __P(protos) ()
-  #endif
- #endif
-
-#else /* not windows */
- static LWS_INLINE int compatible_close(int fd) { return close(fd); }
-
- #include <sys/stat.h>
- #include <sys/time.h>
-
- #if defined(__APPLE__)
-  #include <machine/endian.h>
- #elif defined(__FreeBSD__)
-  #include <sys/endian.h>
- #elif defined(__linux__)
-  #include <endian.h>
- #endif
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#if defined(__QNX__)
-	#include <gulliver.h>
-	#if defined(__LITTLEENDIAN__)
-		#define BYTE_ORDER __LITTLEENDIAN__
-		#define LITTLE_ENDIAN __LITTLEENDIAN__
-		#define BIG_ENDIAN 4321  /* to show byte order (taken from gcc); for suppres warning that BIG_ENDIAN is not defined. */
-	#endif
-	#if defined(__BIGENDIAN__)
-		#define BYTE_ORDER __BIGENDIAN__
-		#define LITTLE_ENDIAN 1234  /* to show byte order (taken from gcc); for suppres warning that LITTLE_ENDIAN is not defined. */
-		#define BIG_ENDIAN __BIGENDIAN__
-	#endif
-#endif
-
-#if defined(__sun) && defined(__GNUC__)
-
- #include <arpa/nameser_compat.h>
-
- #if !defined (BYTE_ORDER)
-  #define BYTE_ORDER __BYTE_ORDER__
- #endif
-
- #if !defined(LITTLE_ENDIAN)
-  #define LITTLE_ENDIAN __ORDER_LITTLE_ENDIAN__
- #endif
-
- #if !defined(BIG_ENDIAN)
-  #define BIG_ENDIAN __ORDER_BIG_ENDIAN__
- #endif
-
-#endif /* sun + GNUC */
-
-#if !defined(BYTE_ORDER)
- #define BYTE_ORDER __BYTE_ORDER
-#endif
-#if !defined(LITTLE_ENDIAN)
- #define LITTLE_ENDIAN __LITTLE_ENDIAN
-#endif
-#if !defined(BIG_ENDIAN)
- #define BIG_ENDIAN __BIG_ENDIAN
-#endif
-
-
-/*
- * Mac OSX as well as iOS do not define the MSG_NOSIGNAL flag,
- * but happily have something equivalent in the SO_NOSIGPIPE flag.
- */
-#ifdef __APPLE__
-#define MSG_NOSIGNAL SO_NOSIGPIPE
-#endif
-
-/*
- * Solaris 11.X only supports POSIX 2001, MSG_NOSIGNAL appears in
- * POSIX 2008.
- */
-#ifdef __sun
- #define MSG_NOSIGNAL 0
-#endif
-
-#ifdef _WIN32
- #ifndef FD_HASHTABLE_MODULUS
-  #define FD_HASHTABLE_MODULUS 32
- #endif
 #endif
 
 #ifndef LWS_DEF_HEADER_LEN
@@ -351,7 +94,68 @@ extern "C" {
 
 #define LWS_H2_RX_SCRATCH_SIZE 512
 
+#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
 
+#ifndef LWS_HAVE_STRERROR
+ #define strerror(x) ""
+#endif
+
+ /*
+  *
+  *  ------ private platform defines ------
+  *
+  */
+
+#if defined(LWS_WITH_ESP32)
+ #include "plat/esp32/private.h"
+#else
+ #if defined(WIN32) || defined(_WIN32)
+  #include "plat/windows/private.h"
+ #else
+  #if defined(LWS_PLAT_OPTEE)
+   #include "plat/optee/private.h"
+  #else
+   #include "plat/unix/private.h"
+  #endif
+ #endif
+#endif
+
+#ifndef LWS_HAVE_BZERO
+ #ifndef bzero
+  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
+ #endif
+#endif
+
+ /*
+  *
+  *  ------ public api ------
+  *
+  */
+
+#include "libwebsockets.h"
+
+
+#include "tls/private.h"
+
+#if defined(WIN32) || defined(_WIN32)
+	 // Visual studio older than 2015 and WIN_CE has only _stricmp
+	#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
+	#define strcasecmp _stricmp
+	#define strncasecmp _strnicmp
+	#elif !defined(__MINGW32__)
+	#define strcasecmp stricmp
+	#define strncasecmp strnicmp
+	#endif
+	#define getdtablesize() 30000
+#endif
+
+#ifndef LWS_ARRAY_SIZE
+#define LWS_ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * All lws_tls...() functions must return this type, converting the
@@ -363,11 +167,11 @@ extern "C" {
  * Non-SSL mode also uses these types.
  */
 enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR = -1,		 /* it failed */
-	LWS_SSL_CAPABLE_DONE = 0,		 /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ = -2,	 /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE = -3,  /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE = -4,	 /* general retry */
+	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
+	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
+	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
+	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
+	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
 };
 
 #if defined(__clang__)
@@ -380,9 +184,87 @@ enum lws_ssl_capable_status {
 
 /*
  *
+ *  ------ apis retconned from future version where they're public ------
+ */
+
+/*
+ * lws_dll2_owner / lws_dll2 : more capable version of lws_dll.  Differences:
+ *
+ *  - there's an explicit lws_dll2_owner struct which holds head, tail and
+ *    count of members.
+ *
+ *  - list members all hold a pointer to their owner.  So user code does not
+ *    have to track anything about exactly what lws_dll2_owner list the object
+ *    is a member of.
+ *
+ *  - you can use lws_dll unless you want the member count or the ability to
+ *    not track exactly which list it's on.
+ *
+ *  - layout is compatible with lws_dll (but lws_dll apis will not update the
+ *    new stuff)
+ */
+
+
+struct lws_dll2;
+struct lws_dll2_owner;
+
+typedef struct lws_dll2 {
+	struct lws_dll2		*prev;
+	struct lws_dll2		*next;
+	struct lws_dll2_owner	*owner;
+} lws_dll2_t;
+
+typedef struct lws_dll2_owner {
+	struct lws_dll2		*tail;
+	struct lws_dll2		*head;
+
+	uint32_t		count;
+} lws_dll2_owner_t;
+
+static LWS_INLINE int
+lws_dll2_is_detached(const struct lws_dll2 *d) { return !d->owner; }
+
+static LWS_INLINE const struct lws_dll2_owner *
+lws_dll2_owner(const struct lws_dll2 *d) { return d->owner; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner->head; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner->tail; }
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_remove(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
+		      int (*cb)(struct lws_dll2 *d, void *user));
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_clear(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_owner_clear(struct lws_dll2_owner *d);
+
+void
+lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after);
+
+
+/*
+ *
  *  ------ roles ------
  *
  */
+
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
 
 #include "roles/private.h"
 
@@ -509,14 +391,6 @@ struct lws_signal_watcher {
 	struct lws_context *context;
 };
 
-#ifdef _WIN32
-#define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
-struct lws_fd_hashtable {
-	struct lws **wsi;
-	int length;
-};
-#endif
-
 struct lws_foreign_thread_pollfd {
 	struct lws_foreign_thread_pollfd *next;
 	int fd_index;
@@ -524,6 +398,28 @@ struct lws_foreign_thread_pollfd {
 	int _or;
 };
 
+#if LWS_MAX_SMP > 1
+
+struct lws_mutex_refcount {
+	pthread_mutex_t lock;
+	pthread_t lock_owner;
+	const char *last_lock_reason;
+	char lock_depth;
+	char metadata;
+};
+
+void
+lws_mutex_refcount_init(struct lws_mutex_refcount *mr);
+
+void
+lws_mutex_refcount_destroy(struct lws_mutex_refcount *mr);
+
+void
+lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason);
+
+void
+lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
+#endif
 
 #define LWS_HRTIMER_NOWAIT (0x7fffffffffffffffll)
 
@@ -534,10 +430,9 @@ struct lws_foreign_thread_pollfd {
 
 struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
-	pthread_mutex_t lock;
 	pthread_mutex_t lock_stats;
-	pthread_t lock_owner;
-	const char *last_lock_reason;
+	struct lws_mutex_refcount mr;
+	pthread_t self;
 #endif
 
 	struct lws_context *context;
@@ -551,7 +446,7 @@ struct lws_context_per_thread {
 
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
-	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
+	struct lws_dll2_owner dll_buflist_owner; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
@@ -560,7 +455,8 @@ struct lws_context_per_thread {
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
 #ifdef _WIN32
-	WSAEVENT *events;
+	WSAEVENT events;
+	CRITICAL_SECTION interrupt_lock;
 #endif
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
@@ -572,6 +468,9 @@ struct lws_context_per_thread {
 #endif
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_pt_role_http http;
+#endif
+#if defined(LWS_ROLE_DBUS)
+	struct lws_pt_role_dbus dbus;
 #endif
 
 	/* --- event library based members --- */
@@ -586,7 +485,8 @@ struct lws_context_per_thread {
 	struct lws_pt_eventlibs_libevent event;
 #endif
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
+    defined(LWS_WITH_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 #endif
 
@@ -595,15 +495,26 @@ struct lws_context_per_thread {
 	unsigned long count_conns;
 	unsigned int fds_count;
 
+	/*
+	 * set to the Thread ID that's doing the service loop just before entry
+	 * to poll indicates service thread likely idling in poll()
+	 * volatile because other threads may check it as part of processing
+	 * for pollfd event change.
+	 */
+	volatile int service_tid;
+	int service_tid_detected;
+
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
 
 	unsigned char tid;
 
-	unsigned char lock_depth;
 	unsigned char inside_service:1;
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
+#ifdef _WIN32
+	unsigned char interrupt_requested:1;
+#endif
 };
 
 struct lws_conn_stats {
@@ -618,8 +529,10 @@ lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
 struct lws_timed_vh_protocol {
 	struct lws_timed_vh_protocol *next;
 	const struct lws_protocols *protocol;
+	struct lws_vhost *vhost; /* only used for pending processing */
 	time_t time;
 	int reason;
+	int tsi_req;
 };
 
 /*
@@ -647,6 +560,7 @@ struct lws_vhost {
 #endif
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
+	char close_flow_vs_tsi[LWS_MAX_SMP];
 #endif
 
 #if defined(LWS_ROLE_H2)
@@ -675,6 +589,9 @@ struct lws_vhost {
 	const char *name;
 	const char *iface;
 
+	void (*finalize)(struct lws_vhost *vh, void *arg);
+	void *finalize_arg;
+
 #if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
 #endif
@@ -682,7 +599,7 @@ struct lws_vhost {
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
-	struct lws **same_vh_protocol_list;
+	struct lws_dll_lws *same_vh_protocol_heads;
 	struct lws_vhost *no_listener_vhost_list;
 #if !defined(LWS_NO_CLIENT)
 	struct lws_dll_lws dll_active_client_conns;
@@ -708,6 +625,8 @@ struct lws_vhost {
 	int keepalive_timeout;
 	int timeout_secs_ah_idle;
 
+	int count_bound_wsi;
+
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;
 #endif
@@ -718,6 +637,13 @@ struct lws_vhost {
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
 };
+
+void
+lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
+void
+lws_vhost_unbind_wsi(struct lws *wsi);
+void
+__lws_vhost_destroy2(struct lws_vhost *vh);
 
 struct lws_deferred_free
 {
@@ -783,9 +709,14 @@ struct lws_context {
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	struct lws_conn_stats conn_stats;
 #if LWS_MAX_SMP > 1
-	pthread_mutex_t lock;
-	int lock_depth;
+	struct lws_mutex_refcount mr;
 #endif
+
+#if defined(LWS_AMAZON_RTOS)
+	mbedtls_entropy_context mec;
+	mbedtls_ctr_drbg_context mcdc;
+#endif
+
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -796,7 +727,13 @@ struct lws_context {
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
+
 	struct lws_deferred_free *deferred_free_list;
+
+#if defined(LWS_WITH_THREADPOOL)
+	struct lws_threadpool *tp_list_head;
+#endif
+
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer **pl_hash_table;
 	struct lws_peer *peer_wait_list;
@@ -851,7 +788,9 @@ struct lws_context {
 
 	int max_fds;
 	int count_event_loop_static_asset_handles;
-	int started_with_parent;
+#if !defined(LWS_NO_DAEMONIZE)
+	pid_t started_with_parent;
+#endif
 	int uid, gid;
 
 	int fd_random;
@@ -863,6 +802,7 @@ struct lws_context {
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
 	int max_http_header_data;
+	int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -880,16 +820,7 @@ struct lws_context {
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
-	/*
-	 * set to the Thread ID that's doing the service loop just before entry
-	 * to poll indicates service thread likely idling in poll()
-	 * volatile because other threads may check it as part of processing
-	 * for pollfd event change.
-	 */
-	volatile int service_tid;
-	int service_tid_detected;
 
-	short max_http_header_pool;
 	short count_threads;
 	short plugin_protocol_count;
 	short plugin_extension_count;
@@ -901,7 +832,7 @@ struct lws_context {
 };
 
 int
-lws_check_deferred_free(struct lws_context *context, int force);
+lws_check_deferred_free(struct lws_context *context, int tsi, int force);
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]
@@ -937,13 +868,13 @@ enum {
 	LWS_EV_START = (1 << 2),
 	LWS_EV_STOP = (1 << 3),
 
-	LWS_EV_PREPARE_DELETION = (1 << 31),
+	LWS_EV_PREPARE_DELETION = (1u << 31),
 };
 
 
 #if defined(LWS_WITH_ESP32)
 LWS_EXTERN int
-lws_find_string_in_file(const char *filename, const char *string, int stringlen);
+lws_find_string_in_file(const char *filename, const char *str, int stringlen);
 #endif
 
 #ifdef LWS_WITH_IPV6
@@ -1018,6 +949,9 @@ struct lws {
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
 #endif
+#if defined(LWS_ROLE_DBUS)
+	struct _lws_dbus_mode_related dbus;
+#endif
 
 	const struct lws_role_ops *role_ops;
 	lws_wsi_state_t	wsistate;
@@ -1025,7 +959,8 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
+    defined(LWS_WITH_LIBEVENT)
 	struct lws_io_watcher w_read;
 #endif
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
@@ -1041,11 +976,15 @@ struct lws {
 	struct lws *sibling_list; /* subsequent children at same level */
 
 	const struct lws_protocols *protocol;
-	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
+	struct lws_dll_lws same_vh_protocol;
 
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
-	struct lws_dll_lws dll_buflist; /* guys with pending rxflow */
+	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
+
+#if defined(LWS_WITH_THREADPOOL)
+	struct lws_threadpool_task *tp_task;
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
@@ -1062,10 +1001,8 @@ struct lws {
 	void *user_space;
 	void *opaque_parent_data;
 
-	struct lws_buflist *buflist;
-
-	/* truncated send handling */
-	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
+	struct lws_buflist *buflist;		/* input-side buflist */
+	struct lws_buflist *buflist_out;	/* output-side buflist */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_lws_tls tls;
@@ -1090,9 +1027,7 @@ struct lws {
 	/* ints */
 #define LWS_NO_FDS_POS (-1)
 	int position_in_fds_table;
-	unsigned int trunc_alloc_len; /* size of malloc */
-	unsigned int trunc_offset; /* where we are in terms of spilling */
-	unsigned int trunc_len; /* how much is buffered */
+
 #ifndef LWS_NO_CLIENT
 	int chunk_remaining;
 #endif
@@ -1125,12 +1060,13 @@ struct lws {
 	unsigned int seen_zero_length_recv:1;
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
-	unsigned int on_same_vh_list:1;
 	unsigned int handling_404:1;
 	unsigned int protocol_bind_balance:1;
+	unsigned int unix_skt:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
+	unsigned int shadow:1; /* we do not control fd lifecycle at all */
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
@@ -1214,6 +1150,14 @@ __lws_free_wsi(struct lws *wsi);
 
 LWS_EXTERN int
 __remove_wsi_socket_from_fds(struct lws *wsi);
+
+enum {
+	LWSRXFC_ERROR = -1,
+	LWSRXFC_CACHED = 0,
+	LWSRXFC_ADDITIONAL = 1,
+	LWSRXFC_TRIMMED = 2,
+};
+
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 
@@ -1237,6 +1181,9 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 	    int ret, int completion);
 #endif
 
+static LWS_INLINE int
+lws_has_buffered_out(struct lws *wsi) { return !!wsi->buflist_out; }
+
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
@@ -1256,22 +1203,7 @@ LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
 LWS_EXTERN int
-lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
-
-#if defined(_WIN32)
-LWS_EXTERN struct lws *
-wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
-
-LWS_EXTERN int
-insert_wsi(struct lws_context *context, struct lws *wsi);
-
-LWS_EXTERN int
-delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
-#else
-#define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()] == 0); A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()]=B
-#define delete_from_fd(A,B) A->lws_lookup[B - lws_plat_socket_offset()]=0
-#endif
+__lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
@@ -1337,10 +1269,8 @@ user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    void *in, size_t len);
 
 LWS_EXTERN int
-lws_plat_socket_offset(void);
-
-LWS_EXTERN int
-lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);
+lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
+			    int unix_skt);
 
 LWS_EXTERN int
 lws_plat_check_connection_error(struct lws *wsi);
@@ -1368,7 +1298,7 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ensure_user_space(struct lws *wsi);
 
-LWS_EXTERN int
+LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
@@ -1423,7 +1353,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 static LWS_INLINE void
 lws_pt_mutex_init(struct lws_context_per_thread *pt)
 {
-	pthread_mutex_init(&pt->lock, NULL);
+	lws_mutex_refcount_init(&pt->mr);
 	pthread_mutex_init(&pt->lock_stats, NULL);
 }
 
@@ -1431,34 +1361,11 @@ static LWS_INLINE void
 lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 {
 	pthread_mutex_destroy(&pt->lock_stats);
-	pthread_mutex_destroy(&pt->lock);
+	lws_mutex_refcount_destroy(&pt->mr);
 }
 
-static LWS_INLINE void
-lws_pt_lock(struct lws_context_per_thread *pt, const char *reason)
-{
-	if (pt->lock_owner == pthread_self()) {
-		pt->lock_depth++;
-		return;
-	}
-	pthread_mutex_lock(&pt->lock);
-	pt->last_lock_reason = reason;
-	pt->lock_owner = pthread_self();
-	//lwsl_notice("tid %d: lock %s\n", pt->tid, reason);
-}
-
-static LWS_INLINE void
-lws_pt_unlock(struct lws_context_per_thread *pt)
-{
-	if (pt->lock_depth) {
-		pt->lock_depth--;
-		return;
-	}
-	pt->last_lock_reason = "free";
-	pt->lock_owner = 0;
-	//lwsl_notice("tid %d: unlock %s\n", pt->tid, pt->last_lock_reason);
-	pthread_mutex_unlock(&pt->lock);
-}
+#define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&pt->mr, reason)
+#define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&pt->mr)
 
 static LWS_INLINE void
 lws_pt_stats_lock(struct lws_context_per_thread *pt)
@@ -1472,17 +1379,8 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 	pthread_mutex_unlock(&pt->lock_stats);
 }
 
-static LWS_INLINE void
-lws_context_lock(struct lws_context *context)
-{
-	pthread_mutex_lock(&context->lock);
-}
-
-static LWS_INLINE void
-lws_context_unlock(struct lws_context *context)
-{
-	pthread_mutex_unlock(&context->lock);
-}
+#define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
+#define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
 
 static LWS_INLINE void
 lws_vhost_lock(struct lws_vhost *vhost)
@@ -1502,7 +1400,7 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
 #define lws_pt_lock(_a, b) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
-#define lws_context_lock(_a) (void)(_a)
+#define lws_context_lock(_a, _b) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
 #define lws_vhost_lock(_a) (void)(_a)
 #define lws_vhost_unlock(_a) (void)(_a)
@@ -1560,7 +1458,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN int
 lws_access_log(struct lws *wsi);
 LWS_EXTERN void
-lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth);
+lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 #else
 #define lws_access_log(_a)
 #endif
@@ -1575,7 +1473,8 @@ int
 lws_protocol_init(struct lws_context *context);
 
 int
-lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p);
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
+		  const char *reason);
 
 const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
@@ -1607,6 +1506,9 @@ void
 lws_plat_pipe_close(struct lws *wsi);
 int
 lws_create_event_pipes(struct lws_context *context);
+
+int
+lws_plat_apply_FD_CLOEXEC(int n);
 
 const struct lws_plat_file_ops *
 lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
@@ -1641,26 +1543,32 @@ LWS_EXTERN int
 lws_plat_service(struct lws_context *context, int timeout_ms);
 LWS_EXTERN LWS_VISIBLE int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
+
+LWS_EXTERN int
+lws_pthread_self_to_tsi(struct lws_context *context);
+
 LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info);
-LWS_EXTERN unsigned long long
-time_in_microseconds(void);
 LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_plat_inet_pton(int af, const char *src, void *dst);
 
+LWS_EXTERN int
+lws_check_byte_utf8(unsigned char state, unsigned char c);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
-LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
-		                lws_filepos_t *amount);
+LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename,
+			  uint8_t **buf, lws_filepos_t *amount);
 
 
 LWS_EXTERN void
 lws_same_vh_protocol_remove(struct lws *wsi);
+LWS_EXTERN void
+__lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
@@ -1684,14 +1592,15 @@ lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
 #endif
 
 /* socks */
-void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			ssize_t *msg_len);
+int
+socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 void
 lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer);
 int
-lws_peer_confirm_ah_attach_ok(struct lws_context *context, struct lws_peer *peer);
+lws_peer_confirm_ah_attach_ok(struct lws_context *context,
+			      struct lws_peer *peer);
 void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
 void
@@ -1705,6 +1614,13 @@ void
 lws_peer_dump_from_wsi(struct lws *wsi);
 #endif
 
+#ifdef LWS_WITH_HUBBUB
+hubbub_error
+html_parser_cb(const hubbub_token *token, void *pw);
+#endif
+
+int
+lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi);
@@ -1729,7 +1645,7 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p);
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
@@ -1751,6 +1667,8 @@ lws_context_destroy2(struct lws_context *context);
 int
 lws_role_call_client_bind(struct lws *wsi,
 			  const struct lws_client_connect_info *i);
+void
+lws_remove_child_from_any_parent(struct lws *wsi);
 
 #ifdef __cplusplus
 };

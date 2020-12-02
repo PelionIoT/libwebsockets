@@ -47,8 +47,11 @@
 #else /* WOLFSSL */
  #if defined(LWS_WITH_ESP32)
   #define OPENSSL_NO_TLSEXT
-  #undef MBEDTLS_CONFIG_FILE
-  #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+  #if !defined(LWS_AMAZON_RTOS)
+   /* AMAZON RTOS has its own setting via MTK_MBEDTLS_CONFIG_FILE */
+   #undef MBEDTLS_CONFIG_FILE
+   #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+  #endif
   #include <mbedtls/ssl.h>
   #include <mbedtls/x509_crt.h>
   #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
@@ -64,6 +67,8 @@
    #include <openssl/err.h>
    #include <openssl/md5.h>
    #include <openssl/sha.h>
+   #include <openssl/rsa.h>
+   #include <openssl/bn.h>
    #ifdef LWS_HAVE_OPENSSL_ECDH_H
     #include <openssl/ecdh.h>
    #endif
@@ -71,8 +76,9 @@
   #endif /* not mbedtls */
   #if defined(OPENSSL_VERSION_NUMBER)
    #if (OPENSSL_VERSION_NUMBER < 0x0009080afL)
-/* later openssl defines this to negate the presence of tlsext... but it was only
- * introduced at 0.9.8j.  Earlier versions don't know it exists so don't
+/*
+ * later openssl defines this to negate the presence of tlsext... but it was
+ * only introduced at 0.9.8j.  Earlier versions don't know it exists so don't
  * define it... making it look like the feature exists...
  */
     #define OPENSSL_NO_TLSEXT
@@ -115,7 +121,7 @@ struct lws_context_tls {
 };
 
 struct lws_pt_tls {
-	struct lws *pending_read_list; /* linked list */
+	struct lws_dll_lws pending_tls_head;
 };
 
 struct lws_tls_ss_pieces;
@@ -149,7 +155,7 @@ struct lws_vhost_tls {
 struct lws_lws_tls {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
-	struct lws *pending_read_list_prev, *pending_read_list_next;
+	struct lws_dll_lws pending_tls_list;
 	unsigned int use_ssl;
 	unsigned int redirect_to_https:1;
 };
@@ -192,7 +198,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 LWS_EXTERN int
 lws_gate_accepts(struct lws_context *context, int on);
 LWS_EXTERN void
-lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx,
+lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, int is_client,
 			const struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
@@ -211,8 +217,8 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 			    const char *private_key);
 LWS_EXTERN int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
-			const char *inbuf, lws_filepos_t inlen,
-		      uint8_t **buf, lws_filepos_t *amount);
+			      const char *inbuf, lws_filepos_t inlen,
+			      uint8_t **buf, lws_filepos_t *amount);
 
 #if !defined(LWS_NO_SERVER)
  LWS_EXTERN int
@@ -260,6 +266,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
 				    const char *ca_filepath,
+				    const void *ca_mem,
+				    unsigned int ca_mem_len,
 				    const char *cert_filepath,
 				    const char *private_key_filepath);
 

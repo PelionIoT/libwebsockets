@@ -13,6 +13,10 @@
 #cmakedefine LWS_ROLE_RAW
 #cmakedefine LWS_ROLE_H2
 #cmakedefine LWS_ROLE_CGI
+#cmakedefine LWS_ROLE_DBUS
+
+#cmakedefine LWS_WITH_LWSAC
+#cmakedefine LWS_WITH_FTS
 
 /* Define to 1 to use wolfSSL/CyaSSL as a replacement for OpenSSL.
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
@@ -107,8 +111,10 @@
 #cmakedefine LWS_HAVE_RSA_SET0_KEY
 #cmakedefine LWS_HAVE_X509_get_key_usage
 #cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
+#cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
 
 #cmakedefine LWS_HAVE_UV_VERSION_H
+#cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_PTHREAD_H
 
 /* CGI apis */
@@ -178,5 +184,9 @@
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
 
 #cmakedefine LWS_HAS_INTPTR_T
+
+#cmakedefine LWS_WITH_HTTP_STREAM_COMPRESSION
+#cmakedefine LWS_WITH_HTTP_BROTLI
+#cmakedefine LWS_WITH_THREADPOOL
 
 ${LWS_SIZEOFPTR_CODE}
