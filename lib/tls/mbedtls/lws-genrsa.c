@@ -36,8 +36,6 @@ lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el)
 LWS_VISIBLE int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 {
-	int n;
-
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -46,6 +44,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 	mbedtls_rsa_init(ctx->ctx, MBEDTLS_RSA_PKCS_V15, 0);
 
 	{
+		int n;
+
 		mbedtls_mpi *mpi[LWS_COUNT_RSA_ELEMENTS] = {
 			&ctx->ctx->E, &ctx->ctx->N, &ctx->ctx->D, &ctx->ctx->P,
 			&ctx->ctx->Q, &ctx->ctx->DP, &ctx->ctx->DQ,
@@ -110,8 +110,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 				if (!el->e[n].buf)
 					goto cleanup;
 				el->e[n].len = mbedtls_mpi_size(mpi[n]);
-				mbedtls_mpi_write_binary(mpi[n], el->e[n].buf,
-							 el->e[n].len);
+				if (mbedtls_mpi_write_binary(mpi[n], el->e[n].buf,
+							 el->e[n].len))
+					goto cleanup;
 			}
 	}
 
@@ -129,7 +130,7 @@ cleanup_1:
 
 LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			   size_t in_len, uint8_t *out, size_t out_max)
+			  size_t in_len, uint8_t *out, size_t out_max)
 {
 	size_t olen = 0;
 	int n;
@@ -149,7 +150,7 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 LWS_VISIBLE int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			   size_t in_len, uint8_t *out)
+			  size_t in_len, uint8_t *out)
 {
 	int n;
 
@@ -213,8 +214,8 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 LWS_VISIBLE int
 lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			 enum lws_genhash_types hash_type, uint8_t *sig,
-			 size_t sig_len)
+		       enum lws_genhash_types hash_type, uint8_t *sig,
+		       size_t sig_len)
 {
 	int n, h = lws_genrsa_genrsa_hash_to_mbed_hash(hash_type);
 
@@ -294,10 +295,12 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 		if (p + m > end)
 			return -1;
 
-		mbedtls_mpi_write_binary(mpi[n], p, m);
+		if (mbedtls_mpi_write_binary(mpi[n], p, m))
+			return -1;
 		if (p[0] & 0x80) {
 			p[0] = 0x00;
-			mbedtls_mpi_write_binary(mpi[n], &p[1], m);
+			if (mbedtls_mpi_write_binary(mpi[n], &p[1], m))
+				return -1;
 			m++;
 		}
 		if (m < 0x7f)

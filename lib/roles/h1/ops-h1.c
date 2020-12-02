@@ -42,7 +42,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	lws_filepos_t body_chunk_len;
 	size_t n;
 
-	// lwsl_notice("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
+	lwsl_debug("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
 
 	switch (lwsi_state(wsi)) {
 
@@ -90,7 +90,6 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * appropriately:
 		 */
 		len -= (buf - last_char);
-//		lwsl_debug("%s: thinks we have used %ld\n", __func__, (long)len);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
@@ -102,6 +101,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 				goto read_ok;
 			case LRS_ISSUING_FILE:
 				goto read_ok;
+			case LRS_DISCARD_BODY:
 			case LRS_BODY:
 				wsi->http.rx_content_remain =
 						wsi->http.rx_content_length;
@@ -115,10 +115,15 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 		break;
 
+	case LRS_DISCARD_BODY:
 	case LRS_BODY:
 http_postbody:
 		lwsl_debug("%s: http post body: remain %d\n", __func__,
 			    (int)wsi->http.rx_content_remain);
+
+		if (!wsi->http.rx_content_remain)
+			goto postbody_completion;
+
 		while (len && wsi->http.rx_content_remain) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
@@ -126,7 +131,7 @@ http_postbody:
 			 */
 			body_chunk_len = min(wsi->http.rx_content_remain, len);
 			wsi->http.rx_content_remain -= body_chunk_len;
-			len -= body_chunk_len;
+			// len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
 			if (wsi->http.cgi) {
 				struct lws_cgi_args args;
@@ -146,11 +151,13 @@ http_postbody:
 					goto bail;
 			} else {
 #endif
+				if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
 					buf, (size_t)body_chunk_len);
 				if (n)
 					goto bail;
+				}
 				n = (size_t)body_chunk_len;
 #ifdef LWS_WITH_CGI
 			}
@@ -158,7 +165,8 @@ http_postbody:
 			buf += n;
 
 			if (wsi->http.rx_content_remain)  {
-				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				lws_set_timeout(wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT,
 						wsi->context->timeout_secs);
 				break;
 			}
@@ -179,6 +187,20 @@ postbody_completion:
 			if (!wsi->http.cgi)
 #endif
 			{
+#if !defined(LWS_NO_SERVER)
+				if (lwsi_state(wsi) == LRS_DISCARD_BODY) {
+					/*
+					 * repeat the transaction completed
+					 * that got us into this state, having
+					 * consumed the pending body now
+					 */
+
+					if (lws_http_transaction_completed(wsi))
+						return -1;
+					break;
+				}
+#endif
+
 				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
 					  wsi, wsi->protocol->name);
 				n = wsi->protocol->callback(wsi,
@@ -221,7 +243,7 @@ ws_mode:
 		break;
 
 	case LRS_DEFERRING_ACTION:
-		lwsl_debug("%s: LRS_DEFERRING_ACTION\n", __func__);
+		lwsl_notice("%s: LRS_DEFERRING_ACTION\n", __func__);
 		break;
 
 	case LRS_SSL_ACK_PENDING:
@@ -308,10 +330,12 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	if ((lwsi_state(wsi) == LRS_ESTABLISHED ||
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	     lwsi_state(wsi) == LRS_HEADERS ||
+	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
 	     lwsi_state(wsi) == LRS_BODY)) {
 
 		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {
-			lwsl_info("%s: wsi %p: ah not available\n", __func__, wsi);
+			lwsl_info("%s: wsi %p: ah not available\n", __func__,
+				  wsi);
 			goto try_pollout;
 		}
 
@@ -330,14 +354,16 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		case 0:
 			lwsl_info("%s: read 0 len a\n", __func__);
 			wsi->seen_zero_length_recv = 1;
-			lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+				goto fail;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 			/*
 			 * autobahn requires us to win the race between close
 			 * and draining the extensions
 			 */
 			if (wsi->ws &&
-			    (wsi->ws->rx_draining_ext || wsi->ws->tx_draining_ext))
+			    (wsi->ws->rx_draining_ext ||
+			     wsi->ws->tx_draining_ext))
 				goto try_pollout;
 #endif
 			/*
@@ -445,11 +471,20 @@ try_pollout:
 
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 
+		if (lws_has_buffered_out(wsi)) {
+			//lwsl_notice("%s: completing partial\n", __func__);
+			if (lws_issue_raw(wsi, NULL, 0) < 0) {
+				lwsl_info("%s signalling to close\n", __func__);
+				goto fail;
+			}
+			return LWS_HPI_RET_HANDLED;
+		}
+
 		lws_stats_atomic_bump(wsi->context, pt,
 					LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
 		if (wsi->active_writable_req_us) {
-			uint64_t ul = time_in_microseconds() -
+			uint64_t ul = lws_time_in_microseconds() -
 					wsi->active_writable_req_us;
 
 			lws_stats_atomic_bump(wsi->context, pt,
@@ -509,6 +544,58 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
+#if 0
+
+	/*
+	 * !!! lws_serve_http_file_fragment() seems to duplicate most of
+	 * lws_handle_POLLOUT_event() in its own loop...
+	 */
+	lwsl_debug("%s: %d %d\n", __func__, (pollfd->revents & LWS_POLLOUT),
+			lwsi_state_can_handle_POLLOUT(wsi));
+
+	if ((pollfd->revents & LWS_POLLOUT) &&
+	    lwsi_state_can_handle_POLLOUT(wsi) &&
+	    lws_handle_POLLOUT_event(wsi, pollfd)) {
+		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+		/* the write failed... it's had it */
+		wsi->socket_is_permanently_unusable = 1;
+
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+#endif
+
+
+	/* Priority 2: pre- compression transform */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
+				__func__, wsi->http.comp_ctx.buflist_comp,
+				wsi->http.comp_ctx.may_have_more
+				);
+
+		if (wsi->role_ops->write_role_protocol(wsi, NULL, 0, &wp) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+		lws_callback_on_writable(wsi);
+
+		if (!wsi->http.comp_ctx.buflist_comp &&
+		    !wsi->http.comp_ctx.may_have_more &&
+		    wsi->http.deferred_transaction_completed) {
+			wsi->http.deferred_transaction_completed = 0;
+			if (lws_http_transaction_completed(wsi))
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+
+		return LWS_HPI_RET_HANDLED;
+	}
+#endif
+
         if (lws_is_flowcontrolled(wsi))
                 /* We cannot deal with any kind of new RX because we are
                  * RX-flowcontrolled.
@@ -519,12 +606,14 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!lwsi_role_client(wsi)) {
 		int n;
 
-		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
+		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
+			   wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
-			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
+			if (lws_server_socket_service_ssl(wsi,
+							  LWS_SOCK_INVALID))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
@@ -547,17 +636,17 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * and turn off our POLLIN
 		 */
 		wsi->client_rx_avail = 1;
-		lws_change_pollfd(wsi, LWS_POLLIN, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		//lwsl_notice("calling back %s\n", wsi->protocol->name);
 
 		/* let user code know, he'll usually ask for writeable
 		 * callback and drain / re-enable it there
 		 */
-		if (user_callback_handle_rxflow(
-				wsi->protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
-				wsi->user_space, NULL, 0)) {
+		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+					       LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+						wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
@@ -598,19 +687,68 @@ static int
 rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
-#if 0
-	/* if not in a state to send stuff, then just send nothing */
+	size_t olen = len;
+	int n;
 
-	if ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
-	     lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
-	     lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK)) {
-		//assert(0);
-		lwsl_debug("binning %d %d\n", lwsi_state(wsi), *wp);
-		return 0;
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.lcs && (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
+			      ((*wp) & 0x1f) == LWS_WRITE_HTTP)) {
+		unsigned char mtubuf[1400 + LWS_PRE +
+				     LWS_HTTP_CHUNK_HDR_MAX_SIZE +
+				     LWS_HTTP_CHUNK_TRL_MAX_SIZE],
+			      *out = mtubuf + LWS_PRE +
+				     LWS_HTTP_CHUNK_HDR_MAX_SIZE;
+		size_t o = sizeof(mtubuf) - LWS_PRE -
+			   LWS_HTTP_CHUNK_HDR_MAX_SIZE -
+			   LWS_HTTP_CHUNK_TRL_MAX_SIZE;
+
+		n = lws_http_compression_transform(wsi, buf, len, wp, &out, &o);
+		if (n)
+			return n;
+
+		lwsl_info("%s: %p: transformed %d bytes to %d "
+			   "(wp 0x%x, more %d)\n", __func__, wsi, (int)len,
+			   (int)o, (int)*wp, wsi->http.comp_ctx.may_have_more);
+
+		if (!o)
+			return olen;
+
+		if (wsi->http.comp_ctx.chunking) {
+			char c[LWS_HTTP_CHUNK_HDR_MAX_SIZE + 2];
+			/*
+			 * this only needs dealing with on http/1.1 to allow
+			 * pipelining
+			 */
+			n = lws_snprintf(c, sizeof(c), "%X\x0d\x0a", (int)o);
+			lwsl_info("%s: chunk (%d) %s", __func__, (int)o, c);
+			out -= n;
+			o += n;
+			memcpy(out, c, n);
+			out[o++] = '\x0d';
+			out[o++] = '\x0a';
+
+			if (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL) {
+				lwsl_info("%s: final chunk\n", __func__);
+				out[o++] = '0';
+				out[o++] = '\x0d';
+				out[o++] = '\x0a';
+				out[o++] = '\x0d';
+				out[o++] = '\x0a';
+			}
+		}
+
+		buf = out;
+		len = o;
 	}
 #endif
 
-	return lws_issue_raw(wsi, (unsigned char *)buf, len);
+	n = lws_issue_raw(wsi, (unsigned char *)buf, len);
+	if (n < 0)
+		return n;
+
+	/* hide there may have been compression */
+
+	return (int)olen;
 }
 
 static int
@@ -656,12 +794,235 @@ rops_destroy_role_h1(struct lws *wsi)
 		ah = ah->next;
 	}
 
-#if defined(LWS_ROLE_WS)
-	lws_free_set_NULL(wsi->ws);
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	lws_http_compression_destroy(wsi);
 #endif
 
+#ifdef LWS_ROLE_WS
+	lws_free_set_NULL(wsi->ws);
+#endif
 	return 0;
 }
+
+#if !defined(LWS_NO_SERVER)
+
+static int
+rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
+{
+	if (!(type & LWS_ADOPT_HTTP))
+		return 0; /* no match */
+
+
+	if (type & _LWS_ADOPT_FINISH) {
+		if (!lws_header_table_attach(wsi, 0))
+			lwsl_debug("Attached ah immediately\n");
+		else
+			lwsl_info("%s: waiting for ah\n", __func__);
+
+		return 1;
+	}
+
+	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
+			    LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
+
+	if (!vh_prot_name)
+		wsi->protocol = &wsi->vhost->protocols[
+					wsi->vhost->default_protocol_index];
+
+	/* the transport is accepted... give him time to negotiate */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+			wsi->context->timeout_secs);
+
+	return 1; /* bound */
+}
+
+#endif
+
+#if !defined(LWS_NO_CLIENT)
+
+static const char * const http_methods[] = {
+	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT"
+};
+
+static int
+rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
+{
+	int n;
+
+	if (!i) {
+		/* we are finalizing an already-selected role */
+
+		/*
+		 * If we stay in http, assuming there wasn't already-set
+		 * external user_space, since we know our initial protocol
+		 * we can assign the user space now, otherwise do it after the
+		 * ws subprotocol negotiated
+		 */
+		if (!wsi->user_space && wsi->stash->method)
+			if (lws_ensure_user_space(wsi))
+				return 1;
+
+		 /*
+		  * For ws, default to http/1.1 only.  If i->alpn had been set
+		  * though, defer to whatever he has set in there (eg, "h2").
+		  *
+		  * The problem is he has to commit to h2 before he can find
+		  * out if the server has the SETTINGS for ws-over-h2 enabled;
+		  * if not then ws is not possible on that connection.  So we
+		  * only try h2 if he assertively said to use h2 alpn, otherwise
+		  * ws implies alpn restriction to h1.
+		  */
+		if (!wsi->stash->method && !wsi->stash->alpn) {
+			wsi->stash->alpn = lws_strdup("http/1.1");
+			if (!wsi->stash->alpn)
+				return 1;
+		}
+
+		/* if we went on the ah waiting list, it's ok, we can wait.
+		 *
+		 * When we do get the ah, now or later, he will end up at
+		 * lws_http_client_connect_via_info2().
+		 */
+		if (lws_header_table_attach(wsi, 0)
+#ifndef LWS_NO_CLIENT
+				< 0)
+			/*
+			 * if we failed here, the connection is already closed
+			 * and freed.
+			 */
+			return -1;
+#else
+			)
+				return 0;
+#endif
+
+		return 0;
+	}
+
+	/*
+	 * Clients that want to be h1, h2, or ws all start out as h1
+	 * (we don't yet know if the server supports h2 or ws)
+	 */
+
+	if (!i->method) { /* websockets */
+#if defined(LWS_ROLE_WS)
+		if (lws_create_client_ws_object(i, wsi))
+			goto fail_wsi;
+#else
+		lwsl_err("%s: ws role not configured\n", __func__);
+
+		goto fail_wsi;
+#endif
+		goto bind_h1;
+	}
+
+	/* if a recognized http method, bind to it */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
+		if (!strcmp(i->method, http_methods[n]))
+			goto bind_h1;
+
+	/* other roles may bind to it */
+
+	return 0; /* no match */
+
+bind_h1:
+	/* assert the mode and union status (hdr) clearly */
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+
+	return 1; /* matched */
+
+fail_wsi:
+	return -1;
+}
+#endif
+
+#if 0
+static int
+rops_perform_user_POLLOUT_h1(struct lws *wsi)
+{
+	volatile struct lws *vwsi = (volatile struct lws *)wsi;
+	int n;
+
+	/* priority 1: post compression-transform buffered output */
+
+	if (lws_has_buffered_out(wsi)) {
+		lwsl_debug("%s: completing partial\n", __func__);
+		if (lws_issue_raw(wsi, NULL, 0) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			return -1;
+		}
+		n = 0;
+		vwsi->leave_pollout_active = 1;
+		goto cleanup;
+	}
+
+	/* priority 2: pre compression-transform buffered output */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+		lwsl_info("%s: completing comp partial"
+			   "(buflist_comp %p, may %d)\n",
+			   __func__, wsi->http.comp_ctx.buflist_comp,
+			    wsi->http.comp_ctx.may_have_more);
+
+		if (rops_write_role_protocol_h1(wsi, NULL, 0, &wp) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "comp write fail");
+		}
+		n = 0;
+		vwsi->leave_pollout_active = 1;
+		goto cleanup;
+	}
+#endif
+
+	/* priority 3: if no buffered out and waiting for that... */
+
+	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+		wsi->socket_is_permanently_unusable = 1;
+		return -1;
+	}
+
+	/* priority 4: user writeable callback */
+
+	vwsi = (volatile struct lws *)wsi;
+	vwsi->leave_pollout_active = 0;
+
+	n = lws_callback_as_writeable(wsi);
+
+cleanup:
+	vwsi->handling_pollout = 0;
+
+	if (vwsi->leave_pollout_active)
+		lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+
+	return n;
+}
+#endif
+
+static int
+rops_close_kill_connection_h1(struct lws *wsi, enum lws_close_status reason)
+{
+#if defined(LWS_WITH_HTTP_PROXY)
+	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+	if (!wsi_eff->http.proxy_clientside)
+		return 0;
+
+	wsi_eff->http.proxy_clientside = 0;
+
+	if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
+					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+					wsi_eff->user_space, NULL, 0))
+		return 0;
+#endif
+	return 0;
+}
+
 
 struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
@@ -682,11 +1043,25 @@ struct lws_role_ops role_ops_h1 = {
 	/* alpn_negotiated */		rops_alpn_negotiated_h1,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
-	/* close_kill_connection */	NULL,
+	/* close_kill_connection */	rops_close_kill_connection_h1,
 	/* destroy_role */		rops_destroy_role_h1,
+#if !defined(LWS_NO_SERVER)
+	/* adoption_bind */		rops_adoption_bind_h1,
+#else
+					NULL,
+#endif
+#if !defined(LWS_NO_CLIENT)
+	/* client_bind */		rops_client_bind_h1,
+#else
+					NULL,
+#endif
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_HTTP_WRITEABLE,
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					  LWS_CALLBACK_CLOSED_HTTP },
+	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL,
+					  LWS_CALLBACK_HTTP_BIND_PROTOCOL },
+	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL,
+					  LWS_CALLBACK_HTTP_DROP_PROTOCOL },
 	/* file_handle */		0,
 };

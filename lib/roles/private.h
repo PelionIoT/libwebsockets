@@ -121,6 +121,7 @@ enum lwsi_state {
 	LRS_ISSUING_FILE			= 20,
 	LRS_HEADERS				= 21,
 	LRS_BODY				= 22,
+	LRS_DISCARD_BODY			= 31,
 	LRS_ESTABLISHED				= LWSIFS_POCB | 23,
 	/* we are established, but we have embarked on serving a single
 	 * transaction.  Other transaction input may be pending, but we will
@@ -148,9 +149,11 @@ enum lwsi_state {
 };
 
 #define lwsi_state(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
-#define lwsi_state_PRE_CLOSE(wsi) ((enum lwsi_state)(wsi->wsistate_pre_close & LRS_MASK))
+#define lwsi_state_PRE_CLOSE(wsi) \
+		((enum lwsi_state)(wsi->wsistate_pre_close & LRS_MASK))
 #define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
-#define lwsi_state_est_PRE_CLOSE(wsi) (!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
+#define lwsi_state_est_PRE_CLOSE(wsi) \
+		(!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
 #if !defined (_DEBUG)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
@@ -158,6 +161,8 @@ enum lwsi_state {
 #else
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #endif
+
+#define _LWS_ADOPT_FINISH (1 << 24)
 
 /*
  * internal role-specific ops
@@ -217,6 +222,16 @@ struct lws_role_ops {
 	/* role-specific destructor */
 	int (*destroy_role)(struct lws *wsi);
 
+	/* role-specific socket-adopt */
+	int (*adoption_bind)(struct lws *wsi, int type, const char *prot);
+	/* role-specific client-bind:
+	 * ret 1 = bound, 0 = not bound, -1 = fail out
+	 * i may be NULL, indicating client_bind is being called after
+	 * a successful bind earlier, to finalize the binding.  In that
+	 * case ret 0 = OK, 1 = fail, wsi needs freeing, -1 = fail, wsi freed */
+	int (*client_bind)(struct lws *wsi,
+			   const struct lws_client_connect_info *i);
+
 	/*
 	 * the callback reasons for WRITEABLE for client, server
 	 * (just client applies if no concept of client or server)
@@ -227,6 +242,16 @@ struct lws_role_ops {
 	 * (just client applies if no concept of client or server)
 	 */
 	uint16_t close_cb[2];
+	/*
+	 * the callback reasons for protocol bind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_bind_cb[2];
+	/*
+	 * the callback reasons for protocol unbind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_unbind_cb[2];
 
 	unsigned int file_handle:1; /* role operates on files not sockets */
 };
@@ -267,6 +292,12 @@ extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
  #define lwsi_role_cgi(wsi) (0)
 #endif
 
+#if defined(LWS_ROLE_DBUS)
+ #include "roles/dbus/private.h"
+#else
+ #define lwsi_role_dbus(wsi) (0)
+#endif
+
 enum {
 	LWS_HP_RET_BAIL_OK,
 	LWS_HP_RET_BAIL_DIE,
@@ -280,3 +311,6 @@ enum {
 	LWS_UPG_RET_CONTINUE,
 	LWS_UPG_RET_BAIL
 };
+
+int
+lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);

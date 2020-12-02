@@ -56,7 +56,8 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
 
-	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb, &vhost->tls.alpn_ctx);
+	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
+				   &vhost->tls.alpn_ctx);
 #else
 	lwsl_err(
 		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%lx\n",
@@ -72,6 +73,9 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	const unsigned char *name = NULL;
 	char cstr[10];
 	unsigned len;
+
+	if (!wsi->tls.ssl)
+		return 0;
 
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 	if (!len) {
@@ -94,6 +98,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	return 0;
 }
 
+#if !defined(LWS_NO_SERVER)
 LWS_VISIBLE int
 lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
@@ -139,7 +144,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.vhost = vhost;
+	wsi.vhost = vhost; /* not a real bound wsi */
 	wsi.context = context;
 
 	/*
@@ -172,15 +177,16 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 	return 0;
 }
+#endif
 
 LWS_VISIBLE int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = wsi->context;
-	struct lws_vhost *vh;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n;
+	struct lws_vhost *vh;
         char buf[256];
+	int n;
 
         (void)buf;
 
@@ -312,12 +318,14 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		/* normal SSL connection processing path */
 
 #if defined(LWS_WITH_STATS)
+		/* only set this the first time around */
 		if (!wsi->accept_start_us)
-			wsi->accept_start_us = time_in_microseconds();
+			wsi->accept_start_us = lws_time_in_microseconds();
 #endif
 		errno = 0;
 		lws_stats_atomic_bump(wsi->context, pt,
-				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN, 1);
+				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN,
+				      1);
 		n = lws_tls_server_accept(wsi);
 		lws_latency(context, wsi,
 			"SSL_accept LRS_SSL_ACK_PENDING\n", n, n == 1);
@@ -327,7 +335,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
 			lws_stats_atomic_bump(wsi->context, pt,
-					      LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
+					      LWSSTATS_C_SSL_CONNECTIONS_FAILED,
+					      1);
 	                lwsl_info("SSL_accept failed socket %u: %d\n",
 	                		wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
@@ -340,10 +349,12 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		lws_stats_atomic_bump(wsi->context, pt,
 				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
 #if defined(LWS_WITH_STATS)
-		lws_stats_atomic_bump(wsi->context, pt,
+		if (wsi->accept_start_us)
+			lws_stats_atomic_bump(wsi->context, pt,
 				      LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY,
-				      time_in_microseconds() - wsi->accept_start_us);
-		wsi->accept_start_us = time_in_microseconds();
+				      lws_time_in_microseconds() -
+					      wsi->accept_start_us);
+		wsi->accept_start_us = lws_time_in_microseconds();
 #endif
 
 accepted:
@@ -354,7 +365,7 @@ accepted:
 			if (!vh->being_destroyed && wsi->tls.ssl &&
 			    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
 				lwsl_info("setting wsi to vh %s\n", vh->name);
-				wsi->vhost = vh;
+				lws_vhost_bind_wsi(vh, wsi);
 				break;
 			}
 			vh = vh->vhost_next;

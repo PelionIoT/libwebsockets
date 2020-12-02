@@ -232,7 +232,7 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 static size_t
 ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 {
-	int fd = open(TEST_SERVER_KEY_PATH, O_RDONLY), n;
+	int fd = lws_open(TEST_SERVER_KEY_PATH, O_RDONLY), n;
 
 	if (fd == -1) {
 		lwsl_err("%s: unable to open %s for read: %s\n", __func__,
@@ -255,7 +255,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 static size_t
 ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 {
-	int fd = open(TEST_SERVER_KEY_PATH, O_CREAT | O_TRUNC | O_RDWR, 0600);
+	int fd = lws_open(TEST_SERVER_KEY_PATH, O_CREAT | O_TRUNC | O_RDWR, 0600);
 	int n;
 
 	lwsl_notice("%s: %d\n", __func__, fd);
@@ -283,7 +283,7 @@ static int
 ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 				 const uint8_t *peer, int peer_len)
 {
-	char *aps = NULL, *p, *ps;
+	char *aps, *p, *ps;
 	int n = strlen(type), alen = 2048, ret = 2, len;
 	size_t s = 0;
 
@@ -343,7 +343,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 */
 
 	if (memcmp(peer, ps, peer_len)) {
-		lwsl_notice("factors mismatch\n");
+		lwsl_info("factors mismatch\n");
 		goto bail;
 	}
 
@@ -458,7 +458,6 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 	struct sshd_instance_priv *priv = _priv;
 	struct lws_ring *r = priv->ring_stdout;
 	void *rp;
-	uint8_t buf[256], *p, *d;
 	size_t bytes;
 	int n, m;
 
@@ -481,6 +480,8 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 			break;
 		}
 		if (priv->pty_in_bloat_nl_to_crnl) {
+			uint8_t buf[256], *p, *d;
+
 			if (bytes != 1)
 				n = bytes / 2;
 			else
