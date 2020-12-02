@@ -632,6 +632,7 @@ struct lws_vhost {
 #endif
 
 	unsigned int created_vhost_protocols:1;
+	unsigned int created_vhost_iface:1;
 	unsigned int being_destroyed:1;
 
 	unsigned char default_protocol_index;
@@ -655,6 +656,9 @@ struct lws_deferred_free
 typedef union {
 #ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 sa6;
+#endif
+#ifdef LWS_WITH_UNIX_SOCK
+	struct sockaddr_un sau;
 #endif
 	struct sockaddr_in sa4;
 } sockaddr46;

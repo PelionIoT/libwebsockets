@@ -1112,6 +1112,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	p += lws_snprintf(p, 128, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
+#ifdef LWS_WITH_UNIX_SOCK
+	// Don't add Origin with unix sockets
+	if (!LWS_UNIX_SOCK_ENABLED(wsi->context))
+#endif
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
 		if (lws_check_opt(wsi->context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))

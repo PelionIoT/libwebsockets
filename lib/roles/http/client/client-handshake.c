@@ -320,6 +320,13 @@ create_new_conn:
 		}
 	} else
 #endif /* use ipv6 */
+#ifdef LWS_WITH_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)) {
+		sa46.sau.sun_family = AF_UNIX;
+		const char* uds_iface = wsi->vhost->iface;
+		strcpy(sa46.sau.sun_path, uds_iface);
+	} else
+#endif
 
 	/* use ipv4 */
 	{
@@ -402,6 +409,11 @@ ads_known:
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
 #endif
+#ifdef LWS_WITH_UNIX_SOCK
+		if (LWS_UNIX_SOCK_ENABLED(context))
+			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+		else
+#endif
 			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		}
 
@@ -478,7 +490,6 @@ ads_known:
 		n = sizeof(sau);
 	} else
 #endif
-
 	{
 #ifdef LWS_WITH_IPV6
 		if (wsi->ipv6) {
