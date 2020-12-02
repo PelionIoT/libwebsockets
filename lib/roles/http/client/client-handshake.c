@@ -323,6 +323,7 @@ create_new_conn:
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(context)) {
 		sa46.sau.sun_family = AF_UNIX;
+		psa = (const struct sockaddr *)&sa46;
 		const char* uds_iface = wsi->vhost->iface;
 		strcpy(sa46.sau.sun_path, uds_iface);
 	} else
@@ -422,7 +423,9 @@ ads_known:
 			cce = "unable to open socket";
 			goto oom4;
 		}
-
+#ifdef LWS_WITH_UNIX_SOCK
+		if (!LWS_UNIX_SOCK_ENABLED(context))
+#endif
 		if (lws_plat_set_socket_options(wsi->vhost, wsi->desc.sockfd,
 #if defined(LWS_WITH_UNIX_SOCK)
 						unix_skt)) {
@@ -496,6 +499,11 @@ ads_known:
 			sa46.sa6.sin6_port = htons(port);
 			n = sizeof(struct sockaddr_in6);
 			psa = (const struct sockaddr *)&sa46;
+		} else
+#endif
+#ifdef LWS_WITH_UNIX_SOCK
+	if (LWS_UNIX_SOCK_ENABLED(context)){
+		n = sizeof(struct sockaddr_un);
 		} else
 #endif
 		{
