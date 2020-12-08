@@ -746,6 +746,13 @@ enum lws_callback_reasons {
 	/**< Sent to parent to notify them a child is closing / being
 	 * destroyed.  in is the child wsi.
 	 */
+	
+	LWS_CALLBACK_CHILD_WRITE_VIA_PARENT			= 68,
+	/**< Child has been marked with parent_carries_io attribute, so
+	 * lws_write directs the to this callback at the parent,
+	 * in is a struct lws_write_passthru containing the args
+	 * the lws_write() was called with.
+	 */
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to TLS certificate management -----
