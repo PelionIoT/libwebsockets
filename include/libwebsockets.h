@@ -223,6 +223,8 @@ typedef unsigned long long lws_intptr_t;
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/rsa.h>
+#include <mbedtls/pk.h>
 #else
 #include <openssl/ssl.h>
 #if !defined(LWS_WITH_MBEDTLS)
@@ -426,6 +428,8 @@ struct lws;
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
+#include <mbedtls/rsa.h>
+#include <mbedtls/pk.h>
 #endif
 
 #include <libwebsockets/lws-genhash.h>

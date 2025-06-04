@@ -3144,7 +3144,7 @@ typedef enum {
 #if defined(LWS_AMAZON_RTOS)
 lws_tokenize_elem
 #else
-int
+lws_tokenize_elem
 #endif
 lws_tokenize(struct lws_tokenize *ts)
 {
